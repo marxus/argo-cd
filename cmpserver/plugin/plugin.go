@@ -227,16 +227,32 @@ func (s *Service) generateManifestGeneric(stream GenerateManifestStream) error {
 	}
 	defer cleanup()
 
-	metadata, err := cmp.ReceiveRepoStream(ctx, stream, workDir, s.initConstants.PluginConfig.Spec.PreserveFileMode)
+	config := s.initConstants.PluginConfig
+
+	metadata, err := cmp.ReceiveRepoStream(ctx, stream, workDir, config.Spec.PreserveFileMode)
 	if err != nil {
 		return fmt.Errorf("generate manifest error receiving stream: %w", err)
 	}
 
-	appPath := filepath.Clean(filepath.Join(workDir, metadata.AppRelPath))
-	if !strings.HasPrefix(appPath, workDir) {
-		return fmt.Errorf("illegal appPath: out of workDir bound")
+	initAppPath := metadata.AppRelPath
+	if len(config.Spec.Init.WorkingDir) > 0 {
+		initAppPath = config.Spec.Init.WorkingDir
 	}
-	response, err := s.generateManifest(ctx, appPath, metadata.GetEnv())
+	initAppPath = filepath.Clean(filepath.Join(workDir, initAppPath))
+	if !strings.HasPrefix(initAppPath, workDir) {
+		return fmt.Errorf("illegal initAppPath: out of workDir bound")
+	}
+
+	generateAppPath := metadata.AppRelPath
+	if len(config.Spec.Generate.WorkingDir) > 0 {
+		generateAppPath = config.Spec.Generate.WorkingDir
+	}
+	generateAppPath = filepath.Clean(filepath.Join(workDir, generateAppPath))
+	if !strings.HasPrefix(generateAppPath, workDir) {
+		return fmt.Errorf("illegal generateAppPath: out of workDir bound")
+	}
+
+	response, err := s.generateManifest(ctx, initAppPath, generateAppPath, metadata.GetEnv())
 	if err != nil {
 		return fmt.Errorf("error generating manifests: %w", err)
 	}
@@ -248,7 +264,7 @@ func (s *Service) generateManifestGeneric(stream GenerateManifestStream) error {
 }
 
 // generateManifest runs generate command from plugin config file and returns generated manifest files
-func (s *Service) generateManifest(ctx context.Context, appDir string, envEntries []*apiclient.EnvEntry) (*apiclient.ManifestResponse, error) {
+func (s *Service) generateManifest(ctx context.Context, initAppDir, generateAppDir string, envEntries []*apiclient.EnvEntry) (*apiclient.ManifestResponse, error) {
 	if deadline, ok := ctx.Deadline(); ok {
 		log.Infof("Generating manifests with deadline %v from now", time.Until(deadline))
 	} else {
@@ -259,13 +275,13 @@ func (s *Service) generateManifest(ctx context.Context, appDir string, envEntrie
 
 	env := append(os.Environ(), environ(envEntries)...)
 	if len(config.Spec.Init.Command) > 0 {
-		_, err := runCommand(ctx, config.Spec.Init, appDir, env)
+		_, err := runCommand(ctx, config.Spec.Init, initAppDir, env)
 		if err != nil {
 			return &apiclient.ManifestResponse{}, err
 		}
 	}
 
-	out, err := runCommand(ctx, config.Spec.Generate, appDir, env)
+	out, err := runCommand(ctx, config.Spec.Generate, generateAppDir, env)
 	if err != nil {
 		return &apiclient.ManifestResponse{}, err
 	}

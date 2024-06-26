@@ -42,8 +42,9 @@ func (d Discover) IsDefined() bool {
 
 // Command holds binary path and arguments list
 type Command struct {
-	Command []string `json:"command,omitempty"`
-	Args    []string `json:"args,omitempty"`
+	Command    []string `json:"command,omitempty"`
+	Args       []string `json:"args,omitempty"`
+	WorkingDir string   `json:"workingDir,omitempty"`
 }
 
 // Find holds find command or glob pattern
